@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------
+   Enervtek theme, taken from the Enervtek pitch deck:
+   off-white background, forest green brand, Rubik + DM Sans.
+   Colors are stored as "R G B" so Tailwind can apply alpha.
+------------------------------------------------------------------- */
+:root {
+  --bg: 247 248 245; /* F7F8F5 deck background */
+  --panel: 255 255 255;
+  --sunken: 242 246 241; /* F2F6F1 */
+  --mint: 232 242 236; /* E8F2EC */
+  --line: 226 232 227;
+  --line-strong: 185 201 191; /* B9C9BF */
+  --fg: 24 37 31; /* 18251F */
+  --muted: 101 115 107; /* 65736B */
+  --faint: 138 148 142; /* 8A948E */
+
+  --brand: 35 122 87; /* 237A57 */
+  --brand-dark: 23 54 41; /* 173629 */
+  --brand-soft: 143 211 174; /* 8FD3AE */
+
+  --ok: 35 122 87;
+  --warn: 169 104 19; /* A96813 */
+  --warn-bg: 255 241 214; /* FFF1D6 */
+  --alarm: 184 58 44;
+  --alarm-bg: 252 233 229;
+  --idle: 160 170 164;
+
+  /* Chart series: validated categorical set (grid, solar, gas) */
+  --grid: 61 127 196;
+  --solar: 224 161 0;
+  --gas: 31 138 91;
+
+  /* LT bus identity (engineer screens only) */
+  --lt1: 61 127 196;
+  --lt2: 35 122 87;
+  --lt3: 169 104 19;
+
+  color-scheme: light;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  * {
+    @apply border-line;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+  }
+  ::selection {
+    background: rgb(var(--brand-soft) / 0.5);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--line-strong)) transparent;
+  }
+}
+
+@layer components {
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+  .eyebrow {
+    @apply text-2xs uppercase tracking-[0.1em] font-bold text-muted;
+  }
+  .label {
+    @apply eyebrow;
+  }
+  .card {
+    @apply bg-panel border border-line rounded-xl shadow-card;
+  }
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-brand/50;
+  }
+  .btn {
+    @apply focus-ring inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold transition-colors;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand-dark;
+  }
+  .btn-ghost {
+    @apply btn text-brand hover:bg-mint;
+  }
+}
+
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 rgb(var(--brand) / 0.5); }
+  70% { box-shadow: 0 0 0 6px rgb(var(--brand) / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(var(--brand) / 0); }
+}
+.live-pulse {
+  animation: live-pulse 2s infinite;
+}
+@keyframes blink-soft {
+  50% { opacity: 0.35; }
+}
+.blink-soft {
+  animation: blink-soft 1.6s ease-in-out infinite;
+}
+
+@media print {
+  #root > div > aside, #root > div > div > header { display: none !important; }
+  main { overflow: visible !important; }
+  body { background: #fff; }
+  .card { box-shadow: none !important; }
+}
+
+@keyframes slidein {
+  from { transform: translateX(30px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+/* Energy flowing along the corridor on the mill map */
+@keyframes power-flow {
+  to { stroke-dashoffset: -28; }
+}
+.power-flow {
+  animation: power-flow 1.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .power-flow, .blink-soft, .live-pulse { animation: none; }
+}
