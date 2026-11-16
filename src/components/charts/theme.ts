@@ -1,4 +1,4 @@
-// Shared ECharts styling: recessive axes and grid, DM Sans, deck colours.
+// Shared ECharts styling: recessive axes and grid, Inter, deck colours.
 export const C = {
   grid: '#3D7FC4',
   solar: '#E0A100',
@@ -14,7 +14,7 @@ export const C = {
   mint: '#E8F2EC',
 }
 
-export const FONT = '"DM Sans", system-ui, sans-serif'
+export const FONT = '"Inter Variable", Inter, system-ui, sans-serif'
 
 export const axisLabel = { color: C.faint, fontFamily: FONT, fontSize: 11 }
 

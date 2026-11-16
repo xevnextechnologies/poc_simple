@@ -1,354 +1,589 @@
+// What to fix first (AI advisor), control-room style: four numbers, a "start
+// here" lead card, the fix pipeline, a priority matrix, ranked fix cards and a
+// detail drawer with the proof chart. All content comes from sim/insights and
+// sim/tracking; only presentation lives here.
 import clsx from 'clsx'
-import { AlertTriangle, BadgeCheck, Bot, Check, ChevronDown, CircleDollarSign, LayoutList, MapPin, MessageSquareQuote, Timer, type LucideIcon } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowRight,
+  BookOpen,
+  Bot,
+  Check,
+  ChevronDown,
+  Gauge,
+  ListChecks,
+  MapPin,
+  MessageSquareQuote,
+  Package,
+  ShieldAlert,
+  Timer,
+  User,
+  Wrench,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Evidence } from '../components/charts/Evidence'
-import { PageHeader } from '../components/ui/primitives'
-import { Disclosure } from '../components/ui/structure'
-import { fmt, pkr } from '../lib/format'
-import { INSIGHTS, type Insight, type Kind } from '../sim/insights'
-import { STAGES, TRACK } from '../sim/tracking'
+import { SectionTitle, useCountUp, useMounted } from '../components/ui/kit'
+import { fmt } from '../lib/format'
+import { INSIGHTS, insightById, type Insight, type Kind } from '../sim/insights'
 import { ruleForInsight } from '../sim/iso'
+import { STAGES, TRACK } from '../sim/tracking'
 
-type Tab = 'all' | Kind
+type Tab = 'all' | 'downtime' | 'problem'
 
-const KIND: Record<Kind, { label: string; short: string; icon: LucideIcon; tint: string; ink: string; hex: string }> = {
-  downtime: { label: 'Stopping production', short: 'Downtime', icon: Timer, tint: 'bg-alarm-bg', ink: 'text-alarm', hex: '#B83A2C' },
-  waste: { label: 'Energy waste', short: 'Waste', icon: CircleDollarSign, tint: 'bg-warn-bg', ink: 'text-warn', hex: '#E0A100' },
-  problem: { label: 'Machine problems caught early', short: 'Problem', icon: AlertTriangle, tint: 'bg-warn-bg', ink: 'text-warn', hex: '#E0A100' },
-  verified: { label: 'Fixed and confirmed', short: 'Fixed', icon: BadgeCheck, tint: 'bg-mint', ink: 'text-brand', hex: '#237A57' },
+const KIND: Partial<Record<Kind, { label: string; short: string; icon: LucideIcon; cls: string; rgb: string }>> = {
+  downtime: { label: 'Stopping production', short: 'Downtime', icon: Timer, cls: 'bg-alarm-bg text-alarm', rgb: 'rgb(var(--alarm))' },
+  problem: { label: 'Machine problem caught early', short: 'Machine problem', icon: ShieldAlert, cls: 'bg-warn-bg text-warn', rgb: 'rgb(var(--warn))' },
 }
-const ORDER: Kind[] = ['downtime', 'problem']
+const kindOf = (i: Insight) => KIND[i.kind] ?? KIND.problem!
+
+/** Two-word names for the small chips (pipeline, priority) */
+const TAG: Record<string, string> = {
+  'bearing-overrun': 'Bearing changes',
+  'no-reason': 'Missing reasons',
+  'card-trips': 'Card trips',
+  'ring-34': 'Ring Frame 34',
+  condenser: 'Condenser motor',
+  'lt2-harmonics': 'LT#2 capacitors',
+}
+const tagOf = (i: Insight) => TAG[i.id] ?? i.where.split(' · ')[0]
 
 /** Downtime first (most yarn first), then machine problems */
-const byKind = (k: Kind) => INSIGHTS.filter((i) => i.kind === k).sort((a, b) => (b.kgMonth ?? 0) - (a.kgMonth ?? 0))
+const RANKED = [...INSIGHTS].sort((a, b) => Number(b.kind === 'downtime') - Number(a.kind === 'downtime') || (b.kgMonth ?? 0) - (a.kgMonth ?? 0))
+const MAX_KG = Math.max(1, ...INSIGHTS.map((i) => i.kgMonth ?? 0))
+
+/** Effort from the measure's cost note: none / low / medium / high */
+const effortOf = (i: Insight) => {
+  const c = TRACK[i.id].measure.cost.toLowerCase()
+  return c.startsWith('none') ? 0 : c.startsWith('low') || c.startsWith('rs') ? 1 : c.startsWith('medium') ? 2 : 3
+}
+/** Due soon (days) or later (this month) */
+const soonOf = (i: Insight) => !/month/i.test(TRACK[i.id].due)
+const initials = (s: string) =>
+  s
+    .split(/\s+/)
+    .filter((w) => /^[A-Za-z]/.test(w))
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('')
+
+/* ------------------------------ page ------------------------------ */
 
 export function Recommendations() {
   const { hash } = useLocation()
-  const focus = hash.replace('#', '')
+  const navigate = useNavigate()
+  const openId = hash.replace('#', '')
+  const open = openId ? insightById[openId] : undefined
   const [tab, setTab] = useState<Tab>('all')
-  const firstId = focus || byKind('downtime')[0]?.id
-  const [open, setOpen] = useState<Set<string>>(new Set(firstId ? [firstId] : []))
+  const show = (id: string | null) => navigate({ hash: id ?? '' }, { replace: true })
 
-  const openOne = (id: string) => {
-    setTab('all')
-    setOpen((o) => new Set(o).add(id))
-    setTimeout(() => document.getElementById(`rec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
-  }
-
-  useEffect(() => {
-    if (focus) openOne(focus)
-  }, [focus]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const toggle = (id: string) =>
-    setOpen((o) => {
-      const n = new Set(o)
-      if (n.has(id)) n.delete(id)
-      else n.add(id)
-      return n
-    })
-
-  const list = (tab === 'all' ? ORDER : [tab]).flatMap(byKind)
+  const downtime = INSIGHTS.filter((i) => i.kind === 'downtime')
+  const problems = INSIGHTS.filter((i) => i.kind === 'problem')
+  const kg = downtime.reduce((a, i) => a + (i.kgMonth ?? 0), 0)
+  const moving = INSIGHTS.filter((i) => TRACK[i.id].stage >= 1).length
+  const lead = RANKED[0]
+  const list = RANKED.filter((i) => tab === 'all' || i.kind === tab)
 
   return (
-    <>
-      <PageHeader
-        layer={{ n: 3, name: 'AI advisor' }}
-        title="What to fix first"
-        subtitle="Everything Enervtek found, most important first: what is happening, what to do, and who is doing it. Click any line for the full story and the proof."
-      />
+    <div>
+      {/* Header */}
+      <header className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+        <h1 className="font-display font-bold text-[22px] sm:text-[26px]">What to fix first</h1>
+        <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full bg-sunken text-[12px] font-semibold text-muted">
+          <Bot size={13} /> AI advisor
+        </span>
+      </header>
 
-      <Summary onPick={openOne} />
+      {/* Four numbers */}
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5 sm:mt-6">
+        <Tile icon={ListChecks} value={INSIGHTS.length} label="Fixes found" tone="fg" />
+        <Tile icon={Package} value={kg} unit="kg" label="Yarn lost a month" tone="alarm" />
+        <Tile icon={ShieldAlert} value={problems.length} label="Breakdowns caught early" tone="warn" />
+        <Tile icon={Wrench} value={moving} label="Being worked on" tone="brand" />
+      </section>
 
-      <CategoryTabs tab={tab} setTab={setTab} />
+      {/* Start here + where every fix stands */}
+      <section className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-4 mt-4">
+        {lead && <LeadCard i={lead} onOpen={() => show(lead.id)} />}
+        <Pipeline onOpen={show} />
+      </section>
 
-      <div className="space-y-3">
-        {list.map((i) => (
-          <RecRow key={i.id} insight={i} open={open.has(i.id)} onToggle={() => toggle(i.id)} focused={focus === i.id} />
-        ))}
-      </div>
-    </>
-  )
-}
+      {/* Priority matrix */}
+      <section className="mt-8">
+        <SectionTitle title="Priority" />
+        <Matrix onOpen={show} />
+      </section>
 
-/* ------------------------------ top: what to do, and where it stands ------------------------------ */
-
-function Summary({ onPick }: { onPick: (id: string) => void }) {
-  const first = byKind('downtime')[0]
-  const counts = STAGES.map((_, s) => INSIGHTS.filter((i) => TRACK[i.id].stage === s).length)
-  const kg = byKind('downtime').reduce((a, i) => a + (i.kgMonth ?? 0), 0)
-  return (
-    <section className="card p-6 grid xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-x-10 gap-y-6 items-center">
-      <div>
-        <p className="font-display font-bold text-[24px] leading-tight">
-          {INSIGHTS.length} things to fix. Start with <span className="text-alarm">{first.title.charAt(0).toLowerCase() + first.title.slice(1)}</span>.
-        </p>
-        <p className="text-[15px] text-muted mt-2">
-          The {byKind('downtime').length} downtime findings cost about <b className="text-fg">{fmt(kg)} kg of yarn a month</b>. The other {byKind('problem').length} are machine problems
-          caught before they cause a breakdown.
-        </p>
-        <button onClick={() => onPick(first.id)} className="btn-primary mt-4">
-          Open the first fix
-        </button>
-      </div>
-      <div>
-        <div className="text-[13px] text-muted mb-3">Where each fix stands</div>
-        <div className="grid grid-cols-5 gap-2">
-          {STAGES.map((st, i) => (
-            <div key={st} className={clsx('rounded-xl px-3 py-3 text-center', counts[i] ? 'bg-mint' : 'bg-sunken/70')}>
-              <div className={clsx('font-display font-bold text-[26px] leading-none num', counts[i] ? 'text-brand-dark' : 'text-faint')}>{counts[i]}</div>
-              <div className="text-[12px] text-muted mt-1.5">{st}</div>
-            </div>
+      {/* All fixes */}
+      <section className="mt-8">
+        <SectionTitle title="All fixes" count={list.length}>
+          <div className="inline-flex p-0.5 rounded-lg bg-sunken text-[12px] font-semibold" role="tablist">
+            {(
+              [
+                ['all', 'All'],
+                ['downtime', 'Downtime'],
+                ['problem', 'Machine'],
+              ] as [Tab, string][]
+            ).map(([t, label]) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className={clsx('focus-ring h-7 px-3 rounded-md transition-colors', tab === t ? 'bg-panel text-fg shadow-card' : 'text-muted hover:text-fg')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </SectionTitle>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {list.map((i, n) => (
+            <FixCard key={i.id} i={i} n={RANKED.indexOf(i) + 1} delay={n * 60} active={openId === i.id} onOpen={() => show(i.id)} />
           ))}
         </div>
-      </div>
-    </section>
-  )
-}
+      </section>
 
-/* ------------------------------ categories ------------------------------ */
-
-function CategoryTabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
-  const items: { id: Tab; label: string; icon: LucideIcon; count: number; sub: string; ink: string; tint: string }[] = [
-    { id: 'all', label: 'All findings', icon: LayoutList, count: INSIGHTS.length, sub: 'Most important first', ink: 'text-brand-dark', tint: 'bg-sunken' },
-    ...ORDER.map((k) => {
-      const l = byKind(k)
-      return {
-        id: k as Tab,
-        label: KIND[k].label,
-        icon: KIND[k].icon,
-        count: l.length,
-        sub: k === 'downtime' ? `${fmt(l.reduce((a, i) => a + (i.kgMonth ?? 0), 0))} kg of yarn a month` : 'Before they become breakdowns',
-        ink: KIND[k].ink,
-        tint: KIND[k].tint,
-      }
-    }),
-  ]
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-8 mb-5" role="tablist">
-      {items.map((t) => {
-        const active = tab === t.id
-        return (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={active}
-            onClick={() => setTab(t.id)}
-            className={clsx(
-              'focus-ring text-left rounded-xl px-4 py-3.5 flex items-center gap-3 border transition-all',
-              active ? 'bg-brand-dark border-brand-dark text-white shadow-pop' : 'bg-panel border-line hover:border-brand-soft shadow-card',
-            )}
-          >
-            <span className={clsx('w-10 h-10 rounded-full grid place-items-center shrink-0', active ? 'bg-white/15 text-white' : clsx(t.tint, t.ink))}>
-              <t.icon size={19} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-baseline justify-between gap-2">
-                <span className="font-semibold text-[14px] truncate">{t.label}</span>
-                <span className="font-display font-bold text-[20px] num leading-none">{t.count}</span>
-              </span>
-              <span className={clsx('block text-[12px] truncate mt-0.5', active ? 'text-white/70' : 'text-muted')}>{t.sub}</span>
-            </span>
-          </button>
-        )
-      })}
+      {open && <Drawer key={open.id} i={open} onClose={() => show(null)} />}
     </div>
   )
 }
 
-/* ------------------------------ one recommendation ------------------------------ */
+/* ------------------------------ pieces ------------------------------ */
 
-function RecRow({ insight: i, open, onToggle, focused }: { insight: Insight; open: boolean; onToggle: () => void; focused: boolean }) {
-  const k = KIND[i.kind]
-  const tr = TRACK[i.id]
-  const verified = i.kind === 'verified'
+const TONE = { alarm: 'text-alarm', warn: 'text-warn', brand: 'text-brand', fg: 'text-fg' } as const
+const TONE_BG = { alarm: 'bg-alarm-bg', warn: 'bg-warn-bg', brand: 'bg-mint', fg: 'bg-sunken' } as const
 
+function Tile({ icon: Icon, value, unit, label, tone }: { icon: LucideIcon; value: number; unit?: string; label: string; tone: keyof typeof TONE }) {
+  const v = useCountUp(value)
   return (
-    <article id={`rec-${i.id}`} className={clsx('card overflow-hidden scroll-mt-4', (focused || open) && 'ring-2 ring-brand/40')}>
-      {/* Collapsed line: category, what, how much, where it stands */}
-      <button
-        onClick={onToggle}
-        aria-expanded={open}
-        className="focus-ring w-full text-left px-5 py-4 grid grid-cols-[auto_1fr_auto] md:grid-cols-[auto_1fr_170px_180px_auto] gap-4 items-center hover:bg-sunken/50 transition-colors"
-      >
-        <span className={clsx('w-10 h-10 rounded-full grid place-items-center', k.tint, k.ink)} title={k.label}>
-          <k.icon size={19} />
-        </span>
-        <div className="min-w-0">
-          <div className={clsx('text-[11px] font-bold uppercase tracking-wide', k.ink)}>{k.label}</div>
-          <div className="font-display font-semibold text-[16px] leading-snug mt-0.5">{i.title}</div>
-          <div className="text-[12px] text-muted mt-0.5 truncate">
-            {i.where} · found {tr.found.toLowerCase()}
-          </div>
+    <div className="rise rounded-2xl border border-line bg-panel p-3.5 sm:p-4 flex flex-col justify-between gap-4 min-w-0">
+      <span className={clsx('w-8 h-8 rounded-lg grid place-items-center', TONE_BG[tone], TONE[tone])}>
+        <Icon size={16} />
+      </span>
+      <div>
+        <div className={clsx('num font-display font-bold text-[28px] sm:text-[34px] leading-none tracking-tight', TONE[tone])}>
+          {fmt(v)}
+          {unit && <span className="text-[14px] sm:text-[15px] font-semibold text-muted ml-1">{unit}</span>}
         </div>
-        <div className="hidden md:block text-right">
-          {i.kgMonth ? (
-            <>
-              <div className="font-display font-bold text-[22px] num leading-none">{fmt(i.kgMonth)} kg</div>
-              <div className="text-[11px] text-muted mt-1">yarn lost / month</div>
-            </>
-          ) : i.rsMonth > 0 ? (
-            <>
-              <div className={clsx('font-display font-bold text-[22px] num leading-none', verified ? 'text-brand' : 'text-fg')}>{pkr(i.rsMonth)}</div>
-              <div className="text-[11px] text-muted mt-1">{verified ? 'saved / month' : 'lost / month'}</div>
-            </>
-          ) : (
-            <>
-              <div className="font-display font-bold text-[15px] text-warn leading-tight">Breakdown risk</div>
-              <div className="text-[11px] text-muted mt-1">caught early</div>
-            </>
-          )}
+        <div className="text-[12px] text-muted mt-1.5 truncate">{label}</div>
+      </div>
+    </div>
+  )
+}
+
+function KindChip({ i }: { i: Insight }) {
+  const k = kindOf(i)
+  return (
+    <span className={clsx('inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11px] font-bold uppercase tracking-wide shrink-0', k.cls)}>
+      <k.icon size={12} strokeWidth={2.5} /> {k.short}
+    </span>
+  )
+}
+
+/** Five-step progress bar with the current step named */
+function StageBar({ stage, className }: { stage: number; className?: string }) {
+  const on = useMounted()
+  return (
+    <div className={className}>
+      <div className="flex gap-1">
+        {STAGES.map((s, n) => (
+          <span key={s} className="h-1.5 flex-1 rounded-full bg-sunken overflow-hidden">
+            <span className="block h-full bg-brand rounded-full transition-[width] duration-700" style={{ width: on && n <= stage ? '100%' : 0, transitionDelay: `${n * 90}ms` }} />
+          </span>
+        ))}
+      </div>
+      <div className="text-[11.5px] font-semibold mt-1.5">{STAGES[stage]}</div>
+    </div>
+  )
+}
+
+function Owner({ name, due }: { name: string; due?: string }) {
+  return (
+    <span className="flex items-center gap-2 min-w-0">
+      <span className="w-7 h-7 rounded-full bg-sunken text-[10.5px] font-bold text-muted grid place-items-center shrink-0" title={name}>
+        {initials(name) || <User size={13} />}
+      </span>
+      <span className="min-w-0 leading-tight">
+        <span className="block text-[12px] font-semibold truncate">{name}</span>
+        {due && <span className="block text-[11px] text-muted truncate">{due}</span>}
+      </span>
+    </span>
+  )
+}
+
+/** Yarn lost per month as a bar, or the breakdown risk for machine problems */
+function Impact({ i, big }: { i: Insight; big?: boolean }) {
+  const on = useMounted()
+  if (i.kgMonth)
+    return (
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-1.5">
+          <span className={clsx('num font-display font-bold leading-none text-alarm', big ? 'text-[40px]' : 'text-[22px]')}>{fmt(i.kgMonth)}</span>
+          <span className="text-[12px] text-muted">kg / month</span>
         </div>
-        <div className="hidden md:block">
-          <MiniStage stage={tr.stage} />
-          <div className="text-[11px] text-muted mt-1 truncate">{tr.owner}</div>
+        <div className="h-1.5 rounded-full bg-sunken mt-2 overflow-hidden">
+          <div className="h-full rounded-full bg-alarm transition-[width] duration-1000" style={{ width: on ? `${(i.kgMonth / MAX_KG) * 100}%` : 0 }} />
         </div>
-        <ChevronDown size={18} className={clsx('text-faint transition-transform', open && 'rotate-180')} />
-      </button>
+      </div>
+    )
+  return (
+    <div className="flex items-center gap-2 text-warn">
+      <ShieldAlert size={big ? 22 : 16} />
+      <span className={clsx('font-display font-bold', big ? 'text-[22px]' : 'text-[15px]')}>Breakdown risk</span>
+    </div>
+  )
+}
 
-      {open && (
-        <div className="border-t border-line">
-          {/* Key facts: the things to see first */}
-          <div className={clsx('grid grid-cols-2 lg:grid-cols-5', verified ? 'bg-mint/60' : i.kind === 'problem' || i.kind === 'downtime' ? 'bg-alarm-bg/50' : 'bg-warn-bg/60')}>
-            <Fact
-              label={verified ? 'Saved every month' : i.kgMonth ? 'Yarn lost every month' : i.rsMonth > 0 ? 'Lost every month' : 'What is at stake'}
-              value={i.kgMonth ? `${fmt(i.kgMonth)} kg` : i.rsMonth > 0 ? pkr(i.rsMonth) : i.impact.split('.')[0]}
-              big={i.rsMonth > 0 || !!i.kgMonth}
-              tone={verified ? 'text-brand' : i.rsMonth > 0 ? 'text-fg' : 'text-alarm'}
-            />
-            <Fact label="Cost to fix" value={tr.measure.cost} />
-            <Fact label="What it brings" value={tr.measure.payback} />
-            <Fact label="Owner" value={tr.owner} />
-            <Fact label={verified ? 'Status' : 'Due'} value={tr.due} />
-          </div>
+/* ------------------------------ start here ------------------------------ */
 
-          <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1fr]">
-            <div className="p-6">
-              <p className="text-[15px] leading-relaxed">{i.plain}</p>
-              {(i.rsMonth > 0 || i.kgMonth) && <p className="text-[13px] text-muted mt-2">{i.impact}</p>}
-
-              <div className="mt-5">
-                <div className="font-display font-semibold text-[15px] mb-2.5">{verified ? 'What was done' : 'What to do'}</div>
-                <ol className="space-y-2.5">
-                  {tr.steps.map((s, n) => (
-                    <li key={s} className="text-[14px] flex gap-3">
-                      <span className="w-6 h-6 rounded-full bg-brand text-white grid place-items-center text-[12px] font-bold shrink-0">{n + 1}</span>
-                      {s.replace(' ✓', '')}
-                    </li>
-                  ))}
-                </ol>
-                <div className="text-[12px] text-muted mt-3">
-                  How we prove it worked: <b className="text-fg">{tr.measure.verify}</b>
-                </div>
-                {ruleForInsight(i.id) && (
-                  <span className="mt-2 inline-flex items-center gap-2 text-[12px] rounded-full bg-alarm-bg text-alarm font-semibold px-3 py-1">
-                    Operating rule {ruleForInsight(i.id)!.id} broken {ruleForInsight(i.id)!.breaches} of {ruleForInsight(i.id)!.of} days · {ruleForInsight(i.id)!.rule}
-                  </span>
-                )}
-              </div>
-
-              <Disclosure label={verified ? 'Cause and background' : 'Possible causes, and what your team told us'} hideLabel="Hide" className="mt-4 -ml-3">
-                <div className="pl-3 space-y-3">
-                  <ul className="space-y-1.5">
-                    {tr.causes.map((c) => (
-                      <li key={c} className="text-[13px] flex gap-2">
-                        <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-line-strong shrink-0" />
-                        {c}
-                      </li>
-                    ))}
-                  </ul>
-                  {!verified && <div className="text-[12px] text-muted">These are likely causes. They are confirmed once someone inspects.</div>}
-                  <div className="rounded-xl bg-mint/60 px-4 py-3 flex gap-3">
-                    <MessageSquareQuote size={17} className="text-brand shrink-0 mt-0.5" />
-                    <div className="text-[13px]">
-                      <span className="text-muted">During the visit your team said: </span>
-                      <i>“{i.heard}”</i>
-                    </div>
-                  </div>
-                  <div className="text-[12px] text-muted">
-                    Matches the textile measure library: <b className="text-fg">{tr.measure.family} · {tr.measure.name}</b>
-                  </div>
-                </div>
-              </Disclosure>
-            </div>
-
-            <div className="p-6 bg-bg/60 xl:border-l border-t xl:border-t-0 border-line flex flex-col">
-              <div className="font-display font-semibold text-[15px]">The proof</div>
-              <div className="text-[13px] text-muted mt-0.5">{tr.evidence}</div>
-              <div className="card mt-3 px-2 pt-1">
-                <Evidence id={i.id} />
-              </div>
-
-              <div className="font-display font-semibold text-[15px] mt-5 mb-3">Progress</div>
-              <Stepper stage={tr.stage} />
-
-              <div className="flex flex-wrap gap-2 mt-auto pt-5">
-                {i.machineIds[0] && (
-                  <Link to={`/map?m=${i.machineIds[0]}`} className="btn-ghost border border-line bg-panel">
-                    <MapPin size={15} /> On the map
-                  </Link>
-                )}
-                {tr.link && (
-                  <Link to={tr.link.to} className="btn-ghost border border-line bg-panel">
-                    {tr.link.label}
-                  </Link>
-                )}
-                <Link to={`/ask?about=${i.id}`} className="btn-ghost border border-line bg-panel">
-                  <Bot size={15} /> Ask Enervtek
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+function LeadCard({ i, onOpen }: { i: Insight; onOpen: () => void }) {
+  const tr = TRACK[i.id]
+  return (
+    <article
+      className="rise rounded-2xl border border-alarm/40 p-5 sm:p-6 flex flex-col gap-5 min-w-0"
+      style={{ background: 'radial-gradient(120% 100% at 0% 0%, rgb(var(--alarm) / 0.13), rgb(var(--panel)) 60%)' }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[11px] uppercase tracking-[0.12em] font-semibold text-faint">Start here</span>
+        <KindChip i={i} />
+      </div>
+      <h2 className="font-display font-bold text-[20px] sm:text-[22px] leading-snug">{i.title}</h2>
+      <Impact i={i} big />
+      <div className="mt-auto flex items-center justify-between gap-3 pt-4 border-t border-line">
+        <Owner name={tr.owner} due={tr.due} />
+        <button onClick={onOpen} className="focus-ring inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-brand text-bg text-[13px] font-bold hover:brightness-110 shrink-0">
+          Open <ArrowRight size={15} />
+        </button>
+      </div>
     </article>
   )
 }
 
-function Fact({ label, value, big, tone }: { label: string; value: string; big?: boolean; tone?: string }) {
-  return (
-    <div className="px-5 py-4 border-b lg:border-b-0 lg:border-r border-line/70 last:border-r-0 min-w-0">
-      <div className="text-[12px] text-muted">{label}</div>
-      <div className={clsx('font-display font-bold num leading-tight mt-1', big ? 'text-[24px]' : 'text-[15px]', tone)}>{value}</div>
-    </div>
-  )
-}
+/* ------------------------------ pipeline ------------------------------ */
 
-function MiniStage({ stage }: { stage: number }) {
+function Pipeline({ onOpen }: { onOpen: (id: string) => void }) {
   return (
-    <div>
-      <div className="flex gap-1">
-        {STAGES.map((s, i) => (
-          <span key={s} className={clsx('h-1.5 flex-1 rounded-full', i <= stage ? 'bg-brand' : 'bg-line')} />
-        ))}
+    <div className="rise rounded-2xl border border-line bg-panel p-4 sm:p-5 min-w-0" style={{ animationDelay: '80ms' }}>
+      <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-faint mb-4">Where every fix stands</div>
+      <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+        {STAGES.map((s, n) => {
+          const here = RANKED.filter((i) => TRACK[i.id].stage === n)
+          return (
+            <div key={s} className="flex flex-col min-w-0">
+              <div className="flex items-center gap-1.5 mb-2">
+                <span className={clsx('w-5 h-5 rounded-full grid place-items-center text-[10px] font-bold shrink-0', here.length ? 'bg-brand text-bg' : 'bg-sunken text-faint')}>{n + 1}</span>
+                <span className={clsx('text-[11px] sm:text-[12px] font-semibold truncate', here.length ? 'text-fg' : 'text-faint')}>{s}</span>
+              </div>
+              {/* Arrow-shaped lane */}
+              <div className={clsx('relative flex-1 min-h-[132px] rounded-xl p-1.5 sm:p-2 flex flex-col gap-1.5', here.length ? 'bg-sunken/70' : 'bg-sunken/30 border border-dashed border-line')}>
+                {here.map((i, k) => {
+                  const K = kindOf(i)
+                  return (
+                    <button
+                      key={i.id}
+                      onClick={() => onOpen(i.id)}
+                      title={i.title}
+                      style={{ animationDelay: `${200 + k * 80}ms` }}
+                      className="rise focus-ring flex items-center gap-1.5 rounded-lg bg-panel border border-line px-1.5 sm:px-2 py-1.5 text-left hover:border-brand/60 transition-colors min-w-0"
+                    >
+                      <span className={clsx('w-5 h-5 rounded-md grid place-items-center shrink-0', K.cls)}>
+                        <K.icon size={11} />
+                      </span>
+                      <span className="text-[11px] font-semibold truncate hidden sm:block">{tagOf(i)}</span>
+                    </button>
+                  )
+                })}
+                {!here.length && <span className="m-auto text-[11px] text-faint">—</span>}
+              </div>
+            </div>
+          )
+        })}
       </div>
-      <div className="text-[12px] font-semibold mt-1">{STAGES[stage]}</div>
     </div>
   )
 }
 
-function Stepper({ stage }: { stage: number }) {
+/* ------------------------------ priority matrix ------------------------------ */
+
+// Urgency from the due date (days vs this month); effort from the cost note (none/low vs medium+)
+const QUADS = [
+  { soon: true, easy: true, title: 'Do now', sub: 'Urgent and easy' },
+  { soon: true, easy: false, title: 'Plan the work', sub: 'Urgent, needs budget' },
+  { soon: false, easy: true, title: 'Schedule', sub: 'Easy, this month' },
+  { soon: false, easy: false, title: 'Project', sub: 'Needs a quote' },
+] as const
+
+function Matrix({ onOpen }: { onOpen: (id: string) => void }) {
   return (
-    <div className="flex items-center">
-      {STAGES.map((s, i) => {
-        const done = i < stage || (stage === STAGES.length - 1 && i === stage)
-        const current = i === stage && !done
+    <div className="rise rounded-2xl border border-line bg-panel p-4 sm:p-5">
+      <div className="grid grid-cols-[18px_minmax(0,1fr)] sm:grid-cols-[22px_minmax(0,1fr)] gap-2">
+        {/* Y axis */}
+        <div className="flex items-center justify-center">
+          <span className="-rotate-90 whitespace-nowrap text-[10.5px] uppercase tracking-[0.12em] font-semibold text-faint">Urgency →</span>
+        </div>
+        <div>
+          <div className="grid grid-cols-2 gap-2">
+            {QUADS.map((q) => {
+              const items = RANKED.filter((i) => soonOf(i) === q.soon && (effortOf(i) <= 1) === q.easy)
+              const hero = q.soon && q.easy
+              return (
+                <div
+                  key={q.title}
+                  className={clsx('rounded-xl p-3 min-h-[120px] flex flex-col gap-2 min-w-0', hero ? 'border border-brand/40' : 'bg-sunken/50')}
+                  style={hero ? { background: 'radial-gradient(120% 120% at 0% 0%, rgb(var(--brand) / 0.14), transparent 70%)' } : undefined}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className={clsx('font-display font-semibold text-[14px]', hero ? 'text-brand' : 'text-fg')}>{q.title}</span>
+                    <span className="text-[11px] text-faint truncate hidden sm:inline">{q.sub}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {items.map((i) => {
+                      const K = kindOf(i)
+                      return (
+                        <button
+                          key={i.id}
+                          onClick={() => onOpen(i.id)}
+                          title={i.title}
+                          className="focus-ring inline-flex items-center gap-1.5 h-7 pl-1 pr-2.5 rounded-full bg-panel border border-line text-[12px] font-semibold hover:border-brand/60 max-w-full"
+                        >
+                          <span className={clsx('w-5 h-5 rounded-full grid place-items-center shrink-0', K.cls)}>
+                            <K.icon size={11} />
+                          </span>
+                          <span className="truncate">{tagOf(i)}</span>
+                        </button>
+                      )
+                    })}
+                    {!items.length && <span className="text-[12px] text-faint">—</span>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="text-right text-[10.5px] uppercase tracking-[0.12em] font-semibold text-faint mt-2">Effort →</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------ fix cards ------------------------------ */
+
+function FixCard({ i, n, delay, active, onOpen }: { i: Insight; n: number; delay: number; active: boolean; onOpen: () => void }) {
+  const tr = TRACK[i.id]
+  return (
+    <button
+      onClick={onOpen}
+      style={{ animationDelay: `${delay}ms` }}
+      className={clsx(
+        'rise focus-ring text-left rounded-2xl border border-line bg-panel p-4 sm:p-5 flex flex-col gap-4 min-w-0 hover:border-brand/50 transition-colors',
+        active && 'ring-2 ring-brand ring-offset-2 ring-offset-bg',
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="num w-7 h-7 rounded-full bg-sunken text-[12px] font-bold text-muted grid place-items-center shrink-0">{n}</span>
+        <KindChip i={i} />
+      </div>
+      <div className="min-w-0">
+        <div className="font-display font-semibold text-[15px] leading-snug line-clamp-2">{i.title}</div>
+        <div className="text-[12px] text-muted truncate mt-1">{i.where}</div>
+      </div>
+      <Impact i={i} />
+      <div className="mt-auto pt-4 border-t border-line grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 items-end">
+        <Owner name={tr.owner} due={tr.due} />
+        <StageBar stage={tr.stage} />
+      </div>
+    </button>
+  )
+}
+
+/* ------------------------------ drawer ------------------------------ */
+
+function Drawer({ i, onClose }: { i: Insight; onClose: () => void }) {
+  const tr = TRACK[i.id]
+  const rule = ruleForInsight(i.id)
+  const [story, setStory] = useState(false)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] fade-in" onClick={onClose} />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label={i.title}
+        className="absolute inset-x-0 bottom-0 max-h-[90vh] rounded-t-2xl sm:rounded-none sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[min(620px,100vw)] sm:max-h-none bg-panel border-t sm:border-t-0 sm:border-l border-line shadow-pop overflow-y-auto sheet-in sm:drawer-in"
+      >
+        {/* Header */}
+        <div className="sticky top-0 z-10 bg-panel/95 backdrop-blur border-b border-line px-5 py-4 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <KindChip i={i} />
+              <span className="text-[12px] text-muted truncate">{i.where}</span>
+            </div>
+            <h2 className="font-display font-bold text-[18px] sm:text-[19px] leading-snug mt-2">{i.title}</h2>
+          </div>
+          <button onClick={onClose} className="focus-ring w-9 h-9 grid place-items-center rounded-lg text-muted hover:text-fg hover:bg-sunken shrink-0" aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-6">
+          {/* Key facts */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="col-span-2 sm:col-span-1 rounded-xl border border-line p-3">
+              <div className="text-[11px] text-muted">{i.kgMonth ? 'Yarn lost / month' : 'At stake'}</div>
+              <div className={clsx('num font-display font-bold mt-1 leading-tight', i.kgMonth ? 'text-[22px] text-alarm' : 'text-[15px] text-warn')}>
+                {i.kgMonth ? `${fmt(i.kgMonth)} kg` : 'Breakdown'}
+              </div>
+            </div>
+            <Fact icon={Gauge} label="Cost to fix" value={tr.measure.cost} />
+            <Fact icon={Check} label="Brings" value={tr.measure.payback} />
+            <Fact icon={Timer} label="Due" value={tr.due} />
+          </div>
+
+          {/* Progress */}
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <span className="text-[11px] uppercase tracking-[0.12em] font-semibold text-faint">Progress</span>
+              <Owner name={tr.owner} />
+            </div>
+            <Stepper stage={tr.stage} />
+          </div>
+
+          {/* What to do */}
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-faint mb-2.5">What to do</div>
+            <ol className="space-y-2">
+              {tr.steps.map((s, n) => (
+                <li key={s} className="flex gap-3 items-start rounded-xl bg-sunken/60 px-3 py-2.5 text-[13.5px]">
+                  <span className="w-6 h-6 rounded-full bg-brand text-bg grid place-items-center text-[12px] font-bold shrink-0">{n + 1}</span>
+                  <span className="pt-0.5">{s.replace(' ✓', '')}</span>
+                </li>
+              ))}
+            </ol>
+            <div className="flex items-start gap-2 text-[12px] text-muted mt-3">
+              <Check size={14} className="text-brand shrink-0 mt-0.5" />
+              <span>
+                Proof it worked: <b className="text-fg">{tr.measure.verify}</b>
+              </span>
+            </div>
+            {rule && (
+              <span className="mt-2 inline-flex items-center gap-1.5 text-[12px] rounded-full bg-alarm-bg text-alarm font-semibold px-3 py-1">
+                <AlertTriangle size={12} /> Rule {rule.id} broken {rule.breaches} of {rule.of} days
+              </span>
+            )}
+          </div>
+
+          {/* The proof */}
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-faint">The proof</div>
+            <div className="text-[12.5px] text-muted mt-0.5">{tr.evidence}</div>
+            <div className="rounded-xl border border-line mt-2 px-1 pt-1">
+              <Evidence id={i.id} height={210} themed />
+            </div>
+          </div>
+
+          {/* What your team said */}
+          <div className="rounded-xl border border-brand/30 px-4 py-3 flex gap-3" style={{ background: 'rgb(var(--brand) / 0.06)' }}>
+            <MessageSquareQuote size={17} className="text-brand shrink-0 mt-0.5" />
+            <div className="text-[13px] italic">“{i.heard}”</div>
+          </div>
+
+          {/* Full story and causes, on demand */}
+          <div className="rounded-xl border border-line">
+            <button onClick={() => setStory(!story)} aria-expanded={story} className="focus-ring w-full flex items-center gap-2 px-4 h-11 text-[13px] font-semibold">
+              <BookOpen size={15} className="text-muted" />
+              <span className="flex-1 text-left">The full story and possible causes</span>
+              <ChevronDown size={16} className={clsx('text-muted transition-transform', story && 'rotate-180')} />
+            </button>
+            {story && (
+              <div className="px-4 pb-4 space-y-3 text-[13px]">
+                <p className="leading-relaxed">{i.plain}</p>
+                <p className="text-muted">{i.impact}</p>
+                <ul className="space-y-1.5">
+                  {tr.causes.map((c) => (
+                    <li key={c} className="flex gap-2">
+                      <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-faint shrink-0" />
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+                <div className="text-[12px] text-muted">
+                  Measure library: <b className="text-fg">{tr.measure.family} · {tr.measure.name}</b>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {i.machineIds[0] && (
+              <Link to={`/map?m=${i.machineIds[0]}`} className="focus-ring inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-sunken text-[13px] font-semibold hover:brightness-110">
+                <MapPin size={15} /> Map
+              </Link>
+            )}
+            {tr.link && (
+              <Link to={tr.link.to} className="focus-ring inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-sunken text-[13px] font-semibold hover:brightness-110">
+                {tr.link.label}
+              </Link>
+            )}
+            <Link to={`/ask?about=${i.id}`} className="focus-ring inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-brand text-bg text-[13px] font-bold hover:brightness-110">
+              <Bot size={15} /> Ask Enervtek
+            </Link>
+          </div>
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function Fact({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-line p-3 min-w-0">
+      <div className="flex items-center gap-1 text-[11px] text-muted">
+        <Icon size={11} /> {label}
+      </div>
+      <div className="font-semibold text-[13px] mt-1 leading-snug">{value}</div>
+    </div>
+  )
+}
+
+/** Found → Assigned → Inspected → Fixed → Confirmed, filling in on open */
+function Stepper({ stage }: { stage: number }) {
+  const on = useMounted()
+  return (
+    <div className="flex items-start">
+      {STAGES.map((s, n) => {
+        const done = n < stage || (stage === STAGES.length - 1 && n === stage)
+        const current = n === stage && !done
         return (
-          <div key={s} className="flex items-center flex-1 last:flex-none">
-            <div className="flex flex-col items-center gap-1.5 w-[64px]">
+          <div key={s} className="flex items-start flex-1 last:flex-none">
+            <div className="flex flex-col items-center gap-1.5 w-[52px] sm:w-[64px]">
               <span
                 className={clsx(
-                  'w-7 h-7 rounded-full grid place-items-center text-[12px] font-bold border-2',
-                  done && 'bg-brand border-brand text-white',
-                  current && 'bg-panel border-brand text-brand',
-                  !done && !current && 'bg-panel border-line text-faint',
+                  'w-7 h-7 rounded-full grid place-items-center text-[12px] font-bold border-2 transition-colors duration-500',
+                  done && on && 'bg-brand border-brand text-bg',
+                  current && 'bg-panel border-brand text-brand ring-4 ring-brand/15',
+                  (!done || !on) && !current && 'bg-panel border-line text-faint',
                 )}
+                style={{ transitionDelay: `${n * 120}ms` }}
               >
-                {done ? <Check size={14} strokeWidth={3} /> : i + 1}
+                {done && on ? <Check size={14} strokeWidth={3} /> : n + 1}
               </span>
-              <span className={clsx('text-[11px] text-center leading-tight', done || current ? 'text-fg font-semibold' : 'text-faint')}>{s}</span>
+              <span className={clsx('text-[10.5px] sm:text-[11px] text-center leading-tight', done || current ? 'text-fg font-semibold' : 'text-faint')}>{s}</span>
             </div>
-            {i < STAGES.length - 1 && <div className={clsx('h-0.5 flex-1 -mt-5 rounded-full', i < stage ? 'bg-brand' : 'bg-line')} />}
+            {n < STAGES.length - 1 && (
+              <div className="h-0.5 flex-1 mt-3.5 rounded-full bg-line overflow-hidden">
+                <div className="h-full bg-brand transition-[width] duration-500" style={{ width: on && n < stage ? '100%' : 0, transitionDelay: `${n * 120 + 60}ms` }} />
+              </div>
+            )}
           </div>
         )
       })}

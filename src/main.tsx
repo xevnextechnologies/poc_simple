@@ -1,14 +1,13 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
-import '@fontsource/dm-sans/400.css'
-import '@fontsource/dm-sans/500.css'
-import '@fontsource/dm-sans/700.css'
-import '@fontsource/rubik/500.css'
-import '@fontsource/rubik/600.css'
-import '@fontsource/rubik/700.css'
+import '@fontsource-variable/inter'
 import './index.css'
 import App from './App'
+import { THEME } from './theme'
+
+// Picks the colour set from index.css ("Themes")
+document.documentElement.dataset.theme = THEME
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

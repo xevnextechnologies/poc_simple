@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Bot, CalendarRange, HeartPulse, Lightbulb, Map, Timer } from 'lucide-react'
+import { Bot, CalendarRange, HeartPulse, LayoutDashboard, Lightbulb, Map, Timer } from 'lucide-react'
 
 export interface NavItem {
   to: string
@@ -23,6 +23,7 @@ export const NAV: NavGroup[] = [
     title: 'Monitoring',
     promise: 'See every machine and every stop',
     items: [
+      { to: '/today', label: 'Mill today', icon: LayoutDashboard, blurb: 'The whole mill on one screen' },
       { to: '/map', label: 'Mill map', icon: Map, blurb: 'Every machine, live, where it stands on the floor' },
       { to: '/downtime', label: 'Downtime now', icon: Timer, blurb: 'Machines stopped right now, why, and for how long' },
       { to: '/downtime-month', label: 'Downtime this month', icon: CalendarRange, blurb: 'Every stop this month and the production it cost' },

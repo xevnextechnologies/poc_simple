@@ -1,7 +1,10 @@
 import clsx from 'clsx'
 import { ClipboardEdit, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { GROUPS, NO_REASON_HEX, REASONS, bufferOf, dur, type DtGroup, type Stop } from '../../sim/downtime'
+import { GROUPS, REASONS, bufferOf, dur, type DtGroup, type Stop } from '../../sim/downtime'
+import { reasonRgb } from '../ui/kit'
+
+const NO_REASON_HEX = reasonRgb('none')
 import { useApp } from '../../store/app'
 
 /** The reason, as a coloured dot and a label. No reason: an amber "Reason needed". */
@@ -19,7 +22,7 @@ export function ReasonChip({ stop, onEnter }: { stop: Stop; onEnter?: () => void
   }
   return (
     <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold">
-      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: GROUPS[stop.reason.group].hex }} />
+      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: reasonRgb(stop.reason.group) }} />
       {stop.reason.label}
     </span>
   )
@@ -41,7 +44,7 @@ export function TimeBar({ stop }: { stop: Stop }) {
         {exp != null && (
           <span className="absolute -top-1.5 -bottom-1.5 w-[2px] bg-fg/70 rounded" style={{ left: pct(exp) }} title={`Normal time ${dur(exp)}`} />
         )}
-        {stop.ongoing && <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-panel border-2 border-fg/60 live-pulse" style={{ left: pct(stop.minutes) }} />}
+        {stop.ongoing && <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-panel border-2 border-fg/60" style={{ left: pct(stop.minutes) }} />}
       </div>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 mt-2 text-[13px]">
         <span>
@@ -145,7 +148,7 @@ export function ReasonForm({ stop, onClose }: { stop: Stop; onClose: () => void 
                   group === g ? 'bg-brand-dark border-brand-dark text-white' : 'border-line hover:bg-sunken',
                 )}
               >
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: GROUPS[g].hex }} />
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: reasonRgb(g) }} />
                 {GROUPS[g].label}
               </button>
             ))}
