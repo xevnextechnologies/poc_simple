@@ -8,7 +8,7 @@ import { nonLinearRegister, BUS_PQ, thdv, tdd, resonanceOrder } from '../src/sim
 import { AREA_DAY_KWH, DAY_KWH, last30, PRODUCTION_TODAY, KG_PER_DAY } from '../src/sim/costs'
 import { answer, SUGGESTIONS } from '../src/sim/assistant'
 import { DEMO, LIVE_STOPS } from '../src/sim/scenarios'
-import { POSSIBLE_KG_MONTH, byGroup, byReason, bySection, isPlanned, monthStops, stoppedNow, totals } from '../src/sim/downtime'
+import { DT_MACHINES, POSSIBLE_KG_MONTH, kgPerHour, byGroup, byReason, bySection, isPlanned, monthStops, stoppedNow, totals } from '../src/sim/downtime'
 
 let fails = 0
 const ok = (cond: boolean, msg: string) => {
@@ -29,7 +29,8 @@ ok(near(byArea(s.machines).reduce((x, a) => x + a.kw, 0), s.mix.load), 'Areas ad
 ok(near(AREA_DAY_KWH.reduce((x, a) => x + a.kwh, 0), DAY_KWH, 0.01), 'Area daily kWh add up to the daily total')
 ok(DAY_CURVE.every((d) => d.grid >= -1), 'Grid never negative in the daily curve')
 ok(Math.max(...DAY_CURVE.map((d) => d.solar)) < TOTAL_SOLAR_KWP, 'Solar never above installed kWp')
-ok(near(todaySoFar(24).ukg, SITE.ukgBaseline, 0.01), `A normal day lands on Din's UKG (${todaySoFar(24).ukg.toFixed(2)})`)
+ok(near(todaySoFar(24).kg, SITE.kgPerDay, 0.001), `A normal day makes Din's real output (${Math.round(todaySoFar(24).kg)} kg = ${SITE.kgPerDay} kg)`)
+ok(todaySoFar(24).ukg > 2.6 && todaySoFar(24).ukg < 3.6, `Mill units per kg is believable for a ring + OE mill (${todaySoFar(24).ukg.toFixed(2)})`)
 ok(FEEDERS.length === 43, '43 feeders')
 ok(nonLinearRegister().reduce((x, g) => x + g.count, 0) === MACHINES.length, `Harmonics register covers every machine (${nonLinearRegister().reduce((x, g) => x + g.count, 0)} of ${MACHINES.length})`)
 
@@ -82,6 +83,16 @@ ok(thdv(b) < 8 && tdd(b) > 8, `LT#2 THDv under limit (${thdv(b).toFixed(1)}), TD
 
 // 5. Production and cost
 ok(near(PRODUCTION_TODAY.reduce((x, c) => x + c.kg, 0), KG_PER_DAY, 0.01), 'Production by count adds up to daily kg')
+ok(near(PRODUCTION_TODAY.reduce((x, c) => x + c.kg * c.ukg, 0) / KG_PER_DAY, DAY_KWH / KG_PER_DAY, 0.01), 'Units per kg by count averages to the mill figure')
+ok(near(DT_MACHINES.filter((m) => m.kind === 'ring-frame' || m.kind === 'open-end').reduce((x, m) => x + kgPerHour(m) * 21, 0), SITE.kgPerDay, 0.001), 'Ring + Open End frames make the daily output')
+{
+  const oe = DT_MACHINES.filter((m) => m.kind === 'open-end')
+  const perRotor = kgPerHour(oe[0]) / (oe[0].rotors ?? 1)
+  const rings = DT_MACHINES.filter((m) => m.kind === 'ring-frame')
+  const perSpindleDay = (rings.reduce((x, m) => x + kgPerHour(m), 0) * 21) / rings.reduce((x, m) => x + (m.spindles ?? 0), 0)
+  ok(perRotor > 0.35 && perRotor < 0.6, `Open End output per rotor is believable (${perRotor.toFixed(2)} kg/h)`)
+  ok(perSpindleDay > 0.4 && perSpindleDay < 0.7, `Ring output per spindle is believable (${perSpindleDay.toFixed(2)} kg/day)`)
+}
 const d30 = last30()
 ok(d30.length === 30, '30 days of history')
 

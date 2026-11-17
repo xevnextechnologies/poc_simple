@@ -4,8 +4,8 @@
 //
 // Clause references are paraphrased (the standard itself is sold by ISO / PSQCA).
 // Enervtek supports ISO 50001; it does not by itself make the mill certified.
-import { MACHINES, METER_POINTS, SITE } from '../data/din'
-import { AREAS } from './engine'
+import { MACHINES, METER_POINTS } from '../data/din'
+import { AREAS, MILL_UKG } from './engine'
 import { AREA_DAY_KWH, BASELINE, BLENDED_RS, LEDGER, last30 } from './costs'
 import { INSIGHTS } from './insights'
 import { STAGES, TRACK } from './tracking'
@@ -129,7 +129,7 @@ export function objectives() {
   const openWaste = INSIGHTS.filter((i) => i.kind === 'waste')
   const fixed = openWaste.filter((i) => TRACK[i.id].stage >= 3).length
   return [
-    { target: `Cut units per kg by 2%: ${SITE.ukgBaseline.toFixed(2)} → ${(SITE.ukgBaseline * 0.98).toFixed(2)}`, by: 'June 2027', now: `${e.ukg.toFixed(2)} now`, progress: Math.max(0, Math.min(1, (SITE.ukgBaseline - e.ukg) / (SITE.ukgBaseline * 0.02))) },
+    { target: `Cut units per kg by 2%: ${MILL_UKG.toFixed(2)} → ${(MILL_UKG * 0.98).toFixed(2)}`, by: 'June 2027', now: `${e.ukg.toFixed(2)} now`, progress: Math.max(0, Math.min(1, (MILL_UKG - e.ukg) / (MILL_UKG * 0.02))) },
     { target: 'Remove the 4 open waste findings', by: 'March 2027', now: `${fixed} of ${openWaste.length} fixed`, progress: fixed / openWaste.length },
     { target: 'Keep LT#2 voltage distortion under 5%', by: 'February 2027', now: '7.0% now', progress: 0 },
     { target: 'Keep every confirmed saving holding', by: 'Ongoing', now: `${LEDGER.filter((l) => l.status === 'holding').length} of ${LEDGER.length} holding`, progress: LEDGER.filter((l) => l.status === 'holding').length / LEDGER.length },

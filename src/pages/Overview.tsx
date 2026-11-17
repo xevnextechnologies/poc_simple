@@ -5,11 +5,11 @@ import clsx from 'clsx'
 import { AlertTriangle, ArrowRight, CircleCheck, Eye, Package, Power, ShieldAlert, Sun, Timer, Zap, type LucideIcon } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { HALLS, MACHINES } from '../data/din'
+import { HALLS, MACHINES, SITE } from '../data/din'
 import { short, stopRgb, useCountUp, useMounted } from '../components/ui/kit'
 import { fmt } from '../lib/format'
-import { DT_MACHINES, monthStops, stoppedNow, sum, todayStops } from '../sim/downtime'
-import { DAY_CURVE } from '../sim/engine'
+import { DT_MACHINES, OE_SHARE, monthStops, stoppedNow, sum, todayStops } from '../sim/downtime'
+import { DAY_CURVE, MILL_UKG, todaySoFar } from '../sim/engine'
 import { HEALTH_LIST, healthCounts } from '../sim/health'
 import { INSIGHTS } from '../sim/insights'
 import { TRACK } from '../sim/tracking'
@@ -30,6 +30,7 @@ export function Overview() {
   const down = stoppedNow(stops).sort((a, b) => b.overMin - a.overMin || b.minutes - a.minutes)
   const running = DT_MACHINES.filter((m) => ['running', 'attention'].includes(live.machines[m.id].status)).length
   const kgToday = sum(today, (s) => s.kg)
+  const kgTodayOe = sum(today.filter((s) => s.machine.kind === 'open-end'), (s) => s.kg)
   const hc = healthCounts()
   const avgHealth = Math.round(HEALTH_LIST.reduce((s, h) => s + h.score, 0) / HEALTH_LIST.length)
   const { load, grid, solar } = live.mix
@@ -53,11 +54,14 @@ export function Overview() {
       {/* Hero + sources */}
       <section className="grid lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-4 mt-5 sm:mt-6">
         <Hero load={load} running={running} total={DT_MACHINES.length} kgToday={kgToday} stopsToday={today.length} />
-        <div className="grid grid-rows-[auto_minmax(0,1fr)] gap-4 min-w-0">
+        <div className="grid grid-rows-[auto_auto_minmax(0,1fr)] gap-4 min-w-0">
           <div className="grid grid-cols-2 gap-4">
             <SourceRing label="Grid" icon={Zap} share={load ? grid / load : 0} kw={grid} color="#3D7FC4" />
             <SourceRing label="Solar" icon={Sun} share={load ? solar / load : 0} kw={solar} color="#E0A100" />
           </div>
+          <Card title="Yarn made today" to="/downtime" delay={90}>
+            <YarnToday hour={live.hour} lost={kgToday} lostOe={kgTodayOe} />
+          </Card>
           <Card title="Load today" to="/map" delay={120}>
             <LoadCurve hour={live.hour} />
           </Card>
@@ -321,6 +325,72 @@ function HallBar({ name, kw, max, stopped }: { name: string; kw: number; max: nu
       <div className="h-1.5 rounded-full bg-sunken mt-1.5 overflow-hidden">
         <div className="h-full rounded-full bg-brand transition-[width] duration-1000" style={{ width: on ? `${(kw / max) * 100}%` : 0 }} />
       </div>
+    </div>
+  )
+}
+
+/**
+ * Yarn made since midnight: what the mill makes at its normal rate (Din's
+ * 31,752 kg a day over the 21 production hours) minus the yarn lost to today's stops.
+ */
+function YarnToday({ hour, lost, lostOe }: { hour: number; lost: number; lostOe: number }) {
+  const on = useMounted()
+  const day = todaySoFar(hour)
+  const plan = day.kg
+  const made = Math.max(0, plan - lost)
+  const oe = Math.max(0, plan * OE_SHARE - lostOe)
+  const ring = made - oe
+  const v = useCountUp(made)
+  const target = SITE.kgPerDay
+  const pct = (x: number) => `${Math.min(100, (x / target) * 100)}%`
+  const onPlan = plan > 0 ? (made / plan) * 100 : 100
+  const ukg = made > 0 ? day.kwh / made : MILL_UKG
+
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="num font-display font-bold text-[30px] sm:text-[34px] leading-none tracking-tight">{fmt(v)}</span>
+        <span className="text-[13px] font-semibold text-muted">kg</span>
+        <span className="num text-[12px] text-muted ml-auto">of {fmt(target)} kg today</span>
+      </div>
+
+      {/* Ring + Open End so far; the tick is where the mill should be by now */}
+      <div className="relative mt-3" title={`With no stops the mill would have made ${fmt(plan)} kg by now`}>
+        <div className="h-2.5 rounded-full bg-sunken overflow-hidden flex">
+          <div className="h-full bg-brand transition-[width] duration-1000" style={{ width: on ? pct(ring) : 0 }} />
+          <div className="h-full transition-[width] duration-1000" style={{ width: on ? pct(oe) : 0, background: 'rgb(var(--brand) / 0.45)' }} />
+        </div>
+        <span className="absolute -top-1 -bottom-1 w-0.5 rounded-full bg-fg/70" style={{ left: pct(plan) }} aria-hidden />
+      </div>
+      <div className="flex items-center gap-x-4 gap-y-1 flex-wrap mt-2 text-[11.5px] text-muted">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-3 h-2 rounded-sm bg-brand" /> Ring <b className="num text-fg font-semibold">{fmt(ring)} kg</b>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-3 h-2 rounded-sm" style={{ background: 'rgb(var(--brand) / 0.45)' }} /> Open End <b className="num text-fg font-semibold">{fmt(oe)} kg</b>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-0.5 h-3 rounded-full bg-fg/70" /> Plan by now
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-line text-center">
+        <MiniStat value={fmt(lost)} unit="kg" label="Lost to stops" tone={lost ? 'text-alarm' : 'text-brand'} />
+        <MiniStat value={fmt(onPlan, 1)} unit="%" label="Of plan" tone={onPlan >= 98 ? 'text-brand' : 'text-warn'} />
+        <MiniStat value={fmt(ukg, 2)} label="Units per kg" tone="text-fg" />
+      </div>
+    </div>
+  )
+}
+
+function MiniStat({ value, unit, label, tone }: { value: string; unit?: string; label: string; tone: string }) {
+  return (
+    <div className="min-w-0">
+      <div className={clsx('num font-display font-bold text-[17px] leading-none', tone)}>
+        {value}
+        {unit && <span className="text-[11px] text-muted font-semibold ml-0.5">{unit}</span>}
+      </div>
+      <div className="text-[11px] text-muted mt-1 truncate">{label}</div>
     </div>
   )
 }

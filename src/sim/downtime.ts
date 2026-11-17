@@ -87,10 +87,21 @@ export const DT_MACHINES = MACHINES.filter((m) => (KINDS as readonly string[]).i
 const countOf = (k: Kind) => DT_MACHINES.filter((m) => m.kind === k).length
 const num = (id: string) => Number(id.replace(/\D/g, ''))
 
-// Ring frames make 88% of the yarn, Open End 12%. Finer counts make fewer kg
-// per hour: 20s ≈ 30, 30s ≈ 25, 40s ≈ 15 kg/h before scaling to the mill total.
-const ringRaw = (m: Machine) => (num(m.id) <= 24 ? 30 : num(m.id) <= 30 ? 15 : 25)
-const RING_SCALE = (KG_PER_HOUR * 0.88) / DT_MACHINES.filter((m) => m.kind === 'ring-frame').reduce((s, m) => s + ringRaw(m), 0)
+// Din's real output is 31,752 kg a day in total; the ring / Open End split is
+// not measured yet, so it is estimated from the machines:
+//  - Open End: 960 rotors on coarse counts (~10s) at ~0.47 kg per rotor-hour → ~30%
+//  - Ring: the other ~70%, ~0.55 kg per spindle a day, which fits a mostly-20s mill
+// Finer counts make fewer kg per spindle: 20s ≈ 31, 30s ≈ 22, 40s ≈ 15 g per spindle-hour.
+export const OE_SHARE = 0.3
+export const RING_SHARE = 1 - OE_SHARE
+/** Ring frames by count (Ring 31 does not exist on Din's SLD) */
+export const isCombed = (m: Machine) => m.kind === 'ring-frame' && num(m.id) >= 25
+const gPerSpindleHour = (m: Machine) => (num(m.id) <= 24 ? 31 : num(m.id) <= 30 ? 15 : 22)
+const ringRaw = (m: Machine) => (m.spindles ?? 0) * gPerSpindleHour(m)
+const RINGS = DT_MACHINES.filter((m) => m.kind === 'ring-frame')
+const RING_SCALE = (KG_PER_HOUR * RING_SHARE) / RINGS.reduce((s, m) => s + ringRaw(m), 0)
+/** Share of all yarn that is combed (Ring 25–39); combers only feed these frames */
+const COMBED_SHARE = (RINGS.filter(isCombed).reduce((s, m) => s + ringRaw(m), 0) * RING_SCALE) / KG_PER_HOUR
 
 /** kg of yarn (or yarn-equivalent material) the machine makes in an hour */
 export function kgPerHour(m: Machine): number {
@@ -98,17 +109,17 @@ export function kgPerHour(m: Machine): number {
     case 'ring-frame':
       return ringRaw(m) * RING_SCALE
     case 'open-end':
-      return (KG_PER_HOUR * 0.12) / countOf('open-end')
+      return (KG_PER_HOUR * OE_SHARE) / countOf('open-end')
     case 'card':
       return KG_PER_HOUR / countOf('card')
     case 'draw-frame':
       return KG_PER_HOUR / countOf('draw-frame')
     case 'comber':
-      return (KG_PER_HOUR * 0.63) / countOf('comber') // combed counts only
+      return (KG_PER_HOUR * COMBED_SHARE) / countOf('comber') // combed counts only
     case 'simplex':
-      return (KG_PER_HOUR * 0.88) / countOf('simplex')
+      return (KG_PER_HOUR * RING_SHARE) / countOf('simplex') // roving feeds the ring frames only
     case 'autoconer':
-      return (KG_PER_HOUR * 0.88) / countOf('autoconer')
+      return (KG_PER_HOUR * RING_SHARE) / countOf('autoconer') // OE packages need no rewinding
     default:
       return 0
   }

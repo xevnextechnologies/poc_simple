@@ -95,7 +95,7 @@ for (const n of range(1, 30)) {
     typicalLoad: 0.74,
     drive: 'VFD',
     modelYear: n >= 27 ? 2009 : 2005,
-    spec: 'Chute-fed card · ~55 kg/h · inverter driven',
+    spec: 'Chute-fed card · ~50 kg/h · inverter driven',
   })
 }
 

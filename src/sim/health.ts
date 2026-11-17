@@ -2,6 +2,7 @@
 // machine health (electrical stress and slow degradation).
 import { MACHINES, machineById } from '../data/din'
 import type { Machine } from '../data/din'
+import { kgPerHour } from './downtime'
 import { loadType } from './pq'
 
 const hash = (s: string) => {
@@ -30,13 +31,18 @@ export interface PeerGroup {
 const ids = (pred: (m: Machine) => boolean) => MACHINES.filter(pred).map((m) => m.id)
 const num = (id: string) => Number(id.replace(/\D/g, ''))
 
+/** Normal units per kg for a group: its machines' running kW ÷ the kg they make an hour */
+const ukgOf = (list: string[]) => list.reduce((s, id) => s + (machineById[id].ratedKw * machineById[id].typicalLoad) / kgPerHour(machineById[id]), 0) / list.length
+const group = (g: Omit<PeerGroup, 'baseUkg'>): PeerGroup => ({ ...g, baseUkg: ukgOf(g.ids) })
+const cardIds = ids((m) => m.kind === 'card' && !m.id.startsWith('MX'))
+
 export const PEER_GROUPS: PeerGroup[] = [
-  { id: 'ring-1200', label: 'Ring frames 32–39', work: '1,200 spindles · 30s combed', baseUkg: 2.1, ids: ids((m) => m.kind === 'ring-frame' && num(m.id) >= 32) },
-  { id: 'ring-1056', label: 'Ring frames 25–30', work: '1,056 spindles · 40s combed', baseUkg: 2.65, ids: ids((m) => m.kind === 'ring-frame' && num(m.id) >= 25 && num(m.id) <= 30) },
-  { id: 'ring-1008', label: 'Ring frames 1–24', work: '1,008 spindles · 20s carded', baseUkg: 1.55, ids: ids((m) => m.kind === 'ring-frame' && num(m.id) <= 24) },
-  { id: 'cards', label: 'Cards 1–30', work: 'Carded sliver · ~55 kg/h', baseUkg: 0.21, ids: ids((m) => m.kind === 'card' && !m.id.startsWith('MX')) },
-  { id: 'autoconers', label: 'Autoconers 1–16', work: '60 drums · cone winding', baseUkg: 0.24, ids: ids((m) => m.kind === 'autoconer') },
-  { id: 'simplex', label: 'Simplex 1–10', work: '120 spindles · roving', baseUkg: 0.16, ids: ids((m) => m.kind === 'simplex' && !m.id.startsWith('MX') && m.id !== 'SX-11') },
+  group({ id: 'ring-1200', label: 'Ring frames 32–39', work: '1,200 spindles · 30s combed', ids: ids((m) => m.kind === 'ring-frame' && num(m.id) >= 32) }),
+  group({ id: 'ring-1056', label: 'Ring frames 25–30', work: '1,056 spindles · 40s combed', ids: ids((m) => m.kind === 'ring-frame' && num(m.id) >= 25 && num(m.id) <= 30) }),
+  group({ id: 'ring-1008', label: 'Ring frames 1–24', work: '1,008 spindles · 20s carded', ids: ids((m) => m.kind === 'ring-frame' && num(m.id) <= 24) }),
+  group({ id: 'cards', label: 'Cards 1–30', work: `Carded sliver · ~${Math.round(kgPerHour(machineById[cardIds[0]]))} kg/h`, ids: cardIds }),
+  group({ id: 'autoconers', label: 'Autoconers 1–16', work: '60 drums · cone winding', ids: ids((m) => m.kind === 'autoconer') }),
+  group({ id: 'simplex', label: 'Simplex 1–10', work: '120 spindles · roving', ids: ids((m) => m.kind === 'simplex' && !m.id.startsWith('MX') && m.id !== 'SX-11') }),
 ]
 
 /** % more (or less) energy per kg than the group's normal */

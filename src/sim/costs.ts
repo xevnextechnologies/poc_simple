@@ -4,7 +4,8 @@
 // (savings ledger, persistence alerts, Rs per kg, waste first).
 import { MACHINES, SITE } from '../data/din'
 import { isCleaning } from '../lib/time'
-import { AREAS, DAY_CURVE, KG_PER_HOUR, TARIFF, machineAt, pkMidnight } from './engine'
+import { AREAS, DAY_CURVE, KG_PER_HOUR, MILL_UKG, TARIFF, machineAt, pkMidnight } from './engine'
+import { DT_MACHINES, kgPerHour } from './downtime'
 
 const STEP = 0.25
 const hash = (s: string) => {
@@ -84,11 +85,22 @@ export function last30(now = Date.now()): Day[] {
 
 /* ------------------------------ production input ------------------------------ */
 // Entered by the production supervisor once a day (ISO 50001 relevant variable).
-export const PRODUCTION_TODAY = [
-  { count: '20s Carded', frames: 'Ring 1–24', share: 0.37, ukg: 3.6 },
-  { count: '30s Combed', frames: 'Ring 32–39', share: 0.4, ukg: 4.4 },
-  { count: '40s Combed', frames: 'Ring 25–30', share: 0.23, ukg: 5.6 },
-].map((c) => ({ ...c, kg: Math.round(KG_PER_DAY * c.share), rsPerKg: c.ukg * BLENDED_RS }))
+// Each count's kg comes from the machines that spin it, so the rows add up to
+// Din's 31,752 kg. Units per kg per count: OE and coarse counts need far less
+// energy; the relative weights are scaled so the mix lands on the mill figure.
+const dayKgOf = (pred: (id: string, n: number) => boolean) =>
+  DT_MACHINES.filter((m) => (m.kind === 'ring-frame' || m.kind === 'open-end') && pred(m.id, Number(m.id.replace(/\D/g, '')))).reduce((s, m) => s + kgPerHour(m) * 21, 0)
+const COUNTS = [
+  { count: '20s Carded', frames: 'Ring 1–24', kg: dayKgOf((id, n) => id.startsWith('RF') && n <= 24), rel: 3.2 },
+  { count: '30s Combed', frames: 'Ring 32–39', kg: dayKgOf((id, n) => id.startsWith('RF') && n >= 32), rel: 4.0 },
+  { count: '40s Combed', frames: 'Ring 25–30', kg: dayKgOf((id, n) => id.startsWith('RF') && n >= 25 && n <= 30), rel: 5.2 },
+  { count: '10s Open End', frames: 'Open End 1–2', kg: dayKgOf((id) => id.startsWith('OE')), rel: 2.1 },
+]
+const UKG_SCALE = (MILL_UKG * KG_PER_DAY) / COUNTS.reduce((s, c) => s + c.kg * c.rel, 0)
+export const PRODUCTION_TODAY = COUNTS.map(({ rel, ...c }) => {
+  const ukg = rel * UKG_SCALE
+  return { ...c, kg: Math.round(c.kg), share: c.kg / KG_PER_DAY, ukg, rsPerKg: ukg * BLENDED_RS }
+})
 
 /* ------------------------------ carbon ------------------------------ */
 export const CO2 = { grid: 0.45, solar: 0 } // kg CO2 per kWh (estimated grid factor)

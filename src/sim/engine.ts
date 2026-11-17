@@ -168,8 +168,10 @@ export const DAY_CURVE: Slot[] = Array.from({ length: 96 }, (_, i) => {
 
 const DAY_KWH = DAY_CURVE.reduce((s, x) => s + x.load * STEP, 0)
 const PRODUCTION_HOURS = 21
-/** kg per production hour, calibrated so a normal day lands on Din's UKG */
-export const KG_PER_HOUR = DAY_KWH / (SITE.ukgBaseline * PRODUCTION_HOURS)
+/** kg per production hour: Din's real daily output spread over the 21 production hours */
+export const KG_PER_HOUR = SITE.kgPerDay / PRODUCTION_HOURS
+/** Units (kWh) per kg for the whole mill on a normal day (≈ 3.07: ~30% of the yarn is low-energy Open End) */
+export const MILL_UKG = DAY_KWH / SITE.kgPerDay
 
 export interface Today {
   kwh: number
@@ -197,7 +199,7 @@ export function todaySoFar(hour: number): Today {
       peakAt = s.hour
     }
   }
-  return { kwh, gridKwh, solarKwh, cost, kg, ukg: kg > 0 ? kwh / kg : SITE.ukgBaseline, peakGridKw, peakAt }
+  return { kwh, gridKwh, solarKwh, cost, kg, ukg: kg > 0 ? kwh / kg : MILL_UKG, peakGridKw, peakAt }
 }
 
 /* ----------------------------- areas ----------------------------- */

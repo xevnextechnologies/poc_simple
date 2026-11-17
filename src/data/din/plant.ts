@@ -23,8 +23,9 @@ export const SITE = {
   supplyVoltage: '11 kV',
   lvVoltage: '410 V / 50 Hz',
   solarSharePct: 20,
-  /** Units (kWh) per kg — the mill's own KPI, from the tour */
-  ukgBaseline: 4.36,
+  /** Total yarn made in a normal day (ring + Open End), real figure from Din.
+   *  Units per kg is worked out from this and the energy model (engine.ts). */
+  kgPerDay: 31_752,
   machineryVintage: 'Mostly 2005, latest 2009',
   sldApprovedBy: 'Ahmad Nadeem Siddique',
 } as const
