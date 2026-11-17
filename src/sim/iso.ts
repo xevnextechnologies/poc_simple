@@ -140,19 +140,19 @@ export function objectives() {
 export type Ready = 'ready' | 'partly' | 'din'
 
 export const READINESS: { clause: string; item: string; status: Ready; how: string }[] = [
-  { clause: '4.3', item: 'Scope and boundaries', status: 'ready', how: `Spinning Unit DIL, ${MACHINES.length} machines, grid and solar` },
+  { clause: '4.3', item: 'Scope and boundaries', status: 'ready', how: `The spinning unit, ${MACHINES.length} machines, grid and solar` },
   { clause: '5.2', item: 'Energy policy', status: 'din', how: 'One-page policy signed by the owner. Enervtek provides a draft.' },
-  { clause: '5.3', item: 'Energy team and roles', status: 'partly', how: 'Every action has an owner. Din names one energy in-charge.' },
-  { clause: '6.2', item: 'Objectives and action plans', status: 'ready', how: '4 targets with progress, every action with owner and date' },
+  { clause: '5.3', item: 'Energy team and roles', status: 'partly', how: 'Every action has an owner. The mill names one energy in-charge.' },
+  { clause: '6.2', item: 'Objectives and action plans', status: 'ready', how: 'Targets with progress, every action with an owner and a date' },
   { clause: '6.3', item: 'Energy review', status: 'ready', how: 'Significant energy uses ranked from metered data' },
-  { clause: '6.4 · 6.5', item: 'Indicators and baseline', status: 'ready', how: 'Units per kg and efficiency index against a 12-month baseline' },
+  { clause: '6.4 · 6.5', item: 'Indicators and baseline', status: 'ready', how: `Units per kg (${MILL_UKG.toFixed(2)} on a normal day) against a 12-month baseline` },
   { clause: '6.6', item: 'Data collection plan', status: 'ready', how: `${METER_POINTS.length} metering points, intervals and completeness logged` },
   { clause: '7.5', item: 'Records', status: 'ready', how: 'Every reading, finding and action kept and exportable' },
   { clause: '8.1', item: 'Operating rules', status: 'ready', how: `${RULES.length} rules checked automatically` },
   { clause: '9.1', item: 'Monitoring and deviations', status: 'ready', how: 'Every deviation logged with cause, action and closure' },
-  { clause: '9.2', item: 'Internal audit', status: 'din', how: 'Once a year by Din or a consultant, using this pack' },
-  { clause: '9.3', item: 'Management review', status: 'partly', how: 'This monthly report is the input. The owner signs it.' },
-  { clause: '10', item: 'Corrective action and improvement', status: 'ready', how: 'Fixes verified by measurement (ISO 50015 method)' },
+  { clause: '9.2', item: 'Internal audit', status: 'din', how: 'Once a year by the mill or a consultant, using these records' },
+  { clause: '9.3', item: 'Management review', status: 'partly', how: "Enervtek's numbers are the input. The owner reviews and signs." },
+  { clause: '10', item: 'Corrective action and improvement', status: 'ready', how: 'Every fix checked by measurement before it is closed (ISO 50015 method)' },
 ]
 export const READY_COUNT = {
   ready: READINESS.filter((r) => r.status === 'ready').length,

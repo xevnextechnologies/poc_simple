@@ -34,7 +34,7 @@ export const SUGGESTIONS: { group: string; qs: string[] }[] = [
   { group: 'Downtime', qs: ['Which machines are stopped right now?', 'Why is Ring Frame 12 stopped?', 'How much downtime did we have this month?'] },
   { group: 'Production', qs: ['How much production did we lose this month?', 'Which machines stop the most?', 'Which jobs take longer than they should?'] },
   { group: 'Machine health', qs: ['How healthy are my machines?', 'Which machine is most likely to break down?', 'Why did Card 06 stop?'] },
-  { group: 'Recommendations', qs: ['What should my team fix first?', 'How can we cut downtime?', 'Which stops have no reason entered?'] },
+  { group: 'Recommendations', qs: ['What should my team fix first?', 'How can we cut downtime?', 'Which stops have no reason entered?', 'Are we ready for ISO 50001?'] },
 ]
 
 /* ------------------------------ small blocks ------------------------------ */
@@ -421,11 +421,11 @@ const A: Record<string, () => Answer> = {
     return {
       reading: ['Checking the audit-ready pack', 'Counting records produced from your meters'],
       paras: [
-        `**${READY_COUNT.ready} of ${READY_COUNT.total}** ISO 50001 items are already produced by Enervtek from your meters: the energy review, baseline and efficiency indicator, metering plan, ${OP_RULES.length} operating rules checked every day, the deviation log, targets and verified savings.`,
+        `**${READY_COUNT.ready} of ${READY_COUNT.total}** ISO 50001 items are already produced by Enervtek from your meters: the energy review, baseline and efficiency indicator, metering plan, ${OP_RULES.length} operating rules checked every day, the deviation log, and targets with every fix checked by measurement.`,
         `What is left is the **people side**: ${din.map((r) => r.item.toLowerCase()).join(', ')}. Mostly a signed one-page policy, a named energy in-charge and a yearly internal audit.`,
-        'Enervtek does not by itself make the mill certified, but every record an auditor asks for can be downloaded from the monthly report.',
+        'Enervtek does not make the mill certified by itself. It keeps every record an auditor asks for, ready to export.',
       ],
-      attach: <Table head={['Item', 'Status']} rows={READINESS.map((r) => [r.item, r.status === 'ready' ? 'Produced by Enervtek' : r.status === 'partly' ? 'Needs one step from Din' : "Din's team"])} />,
+      attach: <Table head={['Item', 'Status']} rows={READINESS.map((r) => [r.item, r.status === 'ready' ? 'Produced by Enervtek' : r.status === 'partly' ? 'Needs one step from the mill' : "Mill's team"])} />,
       sources: 'Audit-ready pack',
     }
   },
@@ -520,6 +520,7 @@ export function findMachine(q: string): string | null {
 }
 
 const RULES: [RegExp, keyof typeof A][] = [
+  [/\biso\b|50001|energy management|audit|certif/, 'iso'],
   [/stopped (right )?now|stopped at the moment|abhi band|band (hain|hai)|kaun.*band|which machines.*(stop|down)/, 'downNow'],
   [/no reason|without (a )?reason|reason (not|missing)|wajah nahi/, 'missing'],
   [/longer than|take longer|too long|overrun|standard time|zyada (der|waqt)/, 'overrun'],

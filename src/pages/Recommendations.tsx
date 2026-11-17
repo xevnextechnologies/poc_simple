@@ -11,6 +11,7 @@ import {
   Check,
   ChevronDown,
   Gauge,
+  FileCheck2,
   ListChecks,
   MapPin,
   MessageSquareQuote,
@@ -28,7 +29,7 @@ import { Evidence } from '../components/charts/Evidence'
 import { SectionTitle, useCountUp, useMounted } from '../components/ui/kit'
 import { fmt } from '../lib/format'
 import { INSIGHTS, insightById, type Insight, type Kind } from '../sim/insights'
-import { ruleForInsight } from '../sim/iso'
+import { READINESS, READY_COUNT, ruleForInsight, type Ready } from '../sim/iso'
 import { STAGES, TRACK } from '../sim/tracking'
 
 type Tab = 'all' | 'downtime' | 'problem'
@@ -146,7 +147,91 @@ export function Recommendations() {
         </div>
       </section>
 
+      {/* ISO 50001: what Enervtek already produces for an energy audit */}
+      <section className="mt-8">
+        <SectionTitle title="ISO 50001 readiness" />
+        <IsoReadiness />
+      </section>
+
       {open && <Drawer key={open.id} i={open} onClose={() => show(null)} />}
+    </div>
+  )
+}
+
+/* ------------------------------ ISO 50001 readiness ------------------------------ */
+
+const READY_META: Record<Ready, { label: string; cls: string; rgb: string }> = {
+  ready: { label: 'Produced by Enervtek', cls: 'bg-mint text-brand', rgb: 'rgb(var(--brand))' },
+  partly: { label: 'One step from the mill', cls: 'bg-warn-bg text-warn', rgb: 'rgb(var(--warn))' },
+  din: { label: "Mill's team", cls: 'bg-sunken text-muted', rgb: 'rgb(var(--faint))' },
+}
+
+function IsoReadiness() {
+  const on = useMounted()
+  const { ready, partly, din, total } = READY_COUNT
+  const v = useCountUp(ready)
+  const seg = (n: number) => (on ? `${(n / total) * 100}%` : '0%')
+
+  return (
+    <div className="rise rounded-2xl border border-line bg-panel grid lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)] overflow-hidden">
+      {/* Summary */}
+      <div className="p-5 sm:p-6 border-b lg:border-b-0 lg:border-r border-line flex flex-col gap-4">
+        <span className="w-9 h-9 rounded-lg grid place-items-center bg-mint text-brand">
+          <FileCheck2 size={18} />
+        </span>
+        <div>
+          <div className="num font-display font-bold text-[34px] leading-none tracking-tight">
+            {fmt(v)}
+            <span className="text-[15px] font-semibold text-muted ml-1">of {total}</span>
+          </div>
+          <div className="text-[13px] text-muted mt-1.5">ISO 50001 items produced automatically from the meters</div>
+        </div>
+        <div>
+          <div className="h-2.5 rounded-full bg-sunken overflow-hidden flex">
+            {(['ready', 'partly', 'din'] as Ready[]).map((k) => (
+              <div key={k} className="h-full transition-[width] duration-1000" style={{ width: seg(READY_COUNT[k]), background: READY_META[k].rgb }} />
+            ))}
+          </div>
+          <div className="mt-2.5 space-y-1 text-[12px]">
+            {(
+              [
+                ['ready', ready],
+                ['partly', partly],
+                ['din', din],
+              ] as [Ready, number][]
+            ).map(([k, n]) => (
+              <div key={k} className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: READY_META[k].rgb }} />
+                <span className="text-muted flex-1">{READY_META[k].label}</span>
+                <b className="num">{n}</b>
+              </div>
+            ))}
+          </div>
+        </div>
+        <p className="text-[12px] leading-snug text-muted mt-auto">
+          Enervtek does not certify the mill. It keeps the measured records an ISO 50001 auditor asks for; the policy, the energy in-charge, the internal audit and the management review stay with the mill.
+        </p>
+      </div>
+
+      {/* Clause by clause */}
+      <ul className="divide-y divide-line">
+        {READINESS.map((r) => (
+          <li key={r.clause} className="px-4 sm:px-5 py-2.5 flex items-center gap-3 min-w-0">
+            <span className="num shrink-0 w-14 text-[11px] font-semibold text-faint">§ {r.clause}</span>
+            <span className="flex-1 min-w-0 leading-tight">
+              <span className="block text-[13px] font-semibold truncate">{r.item}</span>
+              <span className="block text-[11.5px] text-muted truncate" title={r.how}>
+                {r.how}
+              </span>
+            </span>
+            <span className={clsx('shrink-0 h-6 px-2 rounded-full text-[11px] font-semibold inline-flex items-center gap-1', READY_META[r.status].cls)}>
+              {r.status === 'ready' && <Check size={11} />}
+              <span className="hidden sm:inline">{READY_META[r.status].label}</span>
+              <span className="sm:hidden">{r.status === 'ready' ? 'Auto' : r.status === 'partly' ? 'Partly' : 'Mill'}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
